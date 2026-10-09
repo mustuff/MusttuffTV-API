@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  tokenVersion Int       @default(0)
+  name         String
+  role         UserRole  @default(JOURNALIST)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  articles     Article[]
+}
+
+model Country {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  code      String    @unique
+  createdAt DateTime  @default(now())
+  articles  Article[]
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  articles  Article[]
+}
+
+model Article {
+  id          String        @id @default(cuid())
+  title       String
+  slug        String        @unique
+  summary     String?
+  content     String
+  status      ArticleStatus @default(DRAFT)
+  breaking    Boolean       @default(false)
+  publishedAt DateTime?
+  authorId    String
+  countryId   String?
+  categoryId  String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  author      User          @relation(fields: [authorId], references: [id])
+  category    Category?     @relation(fields: [categoryId], references: [id])
+  country     Country?      @relation(fields: [countryId], references: [id])
+  media       Media[]
+
+  @@index([status])
+  @@index([publishedAt])
+  @@index([countryId])
+  @@index([categoryId])
+}
+
+model Media {
+  id        String    @id @default(cuid())
+  type      MediaType
+  url       String
+  caption   String?
+  articleId String
+  createdAt DateTime  @default(now())
+  article   Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId])
+}
+
+model LiveStream {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  streamUrl   String?
+  isLive      Boolean   @default(false)
+  startedAt   DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isLive])
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  JOURNALIST
+  PRODUCER
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  MAP
+}
