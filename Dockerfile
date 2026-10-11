@@ -11,7 +11,7 @@ RUN npm ci
 
 COPY . .
 
-RUN npx prisma generate
+RUN DATABASE_URL="postgresql://user:password@localhost:5432/musttufftv?schema=public" npx prisma generate --config prisma7.config.ts
 RUN npm run build
 
 FROM node:22-bookworm-slim AS production
