@@ -80,6 +80,32 @@ describe('ArticlesService', () => {
     });
   });
 
+  it('allows journalists to edit their own articles', async () => {
+    prisma.article.findUnique.mockResolvedValue({
+      id: 'article-1',
+      authorId: 'journalist-1',
+    });
+
+    prisma.article.update.mockResolvedValue({
+      id: 'article-1',
+      title: 'Changed title',
+      authorId: 'journalist-1',
+    });
+
+    const result = await service.update(
+      'article-1',
+      { title: 'Changed title' },
+      'journalist-1',
+      'JOURNALIST',
+    );
+
+    expect(prisma.article.update).toHaveBeenCalledWith({
+      where: { id: 'article-1' },
+      data: { title: 'Changed title' },
+    });
+    expect(result.title).toBe('Changed title');
+  });
+
   it('prevents journalists from editing another author’s article', async () => {
     prisma.article.findUnique.mockResolvedValue({
       id: 'article-1',
