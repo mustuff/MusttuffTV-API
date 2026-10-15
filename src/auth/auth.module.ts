@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt/jwt.strategy';
 import { LoginRateLimitGuard } from './login-rate-limit.guard';
+import { RedisRateLimitService } from './redis-rate-limit.service';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { LoginRateLimitGuard } from './login-rate-limit.guard';
       },
     }),
   ],
-  providers: [AuthService, JwtStrategy, LoginRateLimitGuard],
+  providers: [AuthService, JwtStrategy, LoginRateLimitGuard, RedisRateLimitService],
   controllers: [AuthController],
   exports: [AuthService, JwtModule],
 })

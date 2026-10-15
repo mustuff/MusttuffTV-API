@@ -1,13 +1,16 @@
 import {
   ExecutionContext,
   HttpException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { LoginRateLimitGuard } from './login-rate-limit.guard';
+import { RedisRateLimitService } from './redis-rate-limit.service';
 
 describe('LoginRateLimitGuard', () => {
   let guard: LoginRateLimitGuard;
-  let now: number;
+  let counts: Map<string, number>;
+  let incrementLoginAttempts: ReturnType<typeof jest.fn>;
 
   function contextFor(ip: string): ExecutionContext {
     return {
@@ -18,66 +21,77 @@ describe('LoginRateLimitGuard', () => {
   }
 
   beforeEach(() => {
-    guard = new LoginRateLimitGuard();
-    now = 1_000_000;
-    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    counts = new Map<string, number>();
+
+    incrementLoginAttempts = jest.fn(async (ip: string) => {
+      const nextCount = (counts.get(ip) ?? 0) + 1;
+      counts.set(ip, nextCount);
+      return nextCount;
+    });
+
+    guard = new LoginRateLimitGuard({
+      incrementLoginAttempts,
+    } as unknown as RedisRateLimitService);
   });
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  it('allows five attempts and rejects the sixth with HTTP 429', () => {
+  it('allows five attempts and rejects the sixth with HTTP 429', async () => {
     const context = contextFor('192.0.2.10');
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      expect(guard.canActivate(context)).toBe(true);
+      await expect(guard.canActivate(context)).resolves.toBe(true);
     }
 
-    try {
-      guard.canActivate(context);
-      fail('Expected the sixth attempt to be rejected');
-    } catch (error) {
-      expect(error).toBeInstanceOf(HttpException);
-      expect((error as HttpException).getStatus()).toBe(429);
-    }
+    await expect(guard.canActivate(context)).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(incrementLoginAttempts).toHaveBeenCalledTimes(6);
   });
 
-  it('tracks different client IPs independently', () => {
+  it('tracks different client IPs independently', async () => {
     const firstClient = contextFor('192.0.2.11');
     const secondClient = contextFor('192.0.2.12');
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      guard.canActivate(firstClient);
+      await guard.canActivate(firstClient);
     }
 
-    expect(() => guard.canActivate(firstClient)).toThrow(HttpException);
-    expect(guard.canActivate(secondClient)).toBe(true);
+    await expect(guard.canActivate(firstClient)).rejects.toBeInstanceOf(
+      HttpException,
+    );
+
+    await expect(
+      guard.canActivate(secondClient),
+    ).resolves.toBe(true);
   });
 
-  it('allows attempts again after the 60-second window expires', () => {
-    const context = contextFor('192.0.2.13');
+  it('fails closed when Redis protection is unavailable', async () => {
+    incrementLoginAttempts.mockRejectedValueOnce(
+      new ServiceUnavailableException(
+        'Login protection is temporarily unavailable.',
+      ),
+    );
 
-    for (let attempt = 0; attempt < 5; attempt++) {
-      guard.canActivate(context);
-    }
-
-    expect(() => guard.canActivate(context)).toThrow(HttpException);
-
-    now += 60_001;
-
-    expect(guard.canActivate(context)).toBe(true);
+    await expect(
+      guard.canActivate(contextFor('192.0.2.13')),
+    ).rejects.toMatchObject({
+      status: 503,
+    });
   });
 
-  it('keeps tracked clients within the configured bound', () => {
-    const internalGuard = guard as unknown as {
-      attempts: Map<string, number[]>;
-    };
+  it('uses the request IP rather than a forwarded header', async () => {
+    const context = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          ip: '192.0.2.14',
+          headers: {
+            'x-forwarded-for': '203.0.113.99',
+          },
+        }),
+      }),
+    } as unknown as ExecutionContext;
 
-    for (let client = 0; client < 10_001; client++) {
-      guard.canActivate(contextFor(`192.0.2.${client}`));
-    }
+    await guard.canActivate(context);
 
-    expect(internalGuard.attempts.size).toBeLessThanOrEqual(10_000);
+    expect(incrementLoginAttempts).toHaveBeenCalledWith('192.0.2.14');
   });
 });

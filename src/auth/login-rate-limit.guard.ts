@@ -6,55 +6,31 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { RedisRateLimitService } from './redis-rate-limit.service';
 
-const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 5;
-const MAX_TRACKED_CLIENTS = 10_000;
 
 @Injectable()
 export class LoginRateLimitGuard implements CanActivate {
-  private readonly attempts = new Map<string, number[]>();
+  constructor(
+    private readonly rateLimitService: RedisRateLimitService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context
       .switchToHttp()
       .getRequest<Request>();
 
     const clientIp = request.ip || 'unknown';
-    const now = Date.now();
-    const cutoff = now - WINDOW_MS;
+    const attempts =
+      await this.rateLimitService.incrementLoginAttempts(clientIp);
 
-    const recentAttempts = (
-      this.attempts.get(clientIp) ?? []
-    ).filter((timestamp) => timestamp > cutoff);
-
-    if (recentAttempts.length >= MAX_ATTEMPTS) {
-      this.attempts.delete(clientIp);
-      this.attempts.set(clientIp, recentAttempts);
-
+    if (attempts > MAX_ATTEMPTS) {
       throw new HttpException(
         'Too many login attempts. Please try again later.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-
-    // Refresh this client's position in the LRU order.
-    this.attempts.delete(clientIp);
-
-    // Bound memory usage when new client IPs appear.
-    if (
-      !this.attempts.has(clientIp) &&
-      this.attempts.size >= MAX_TRACKED_CLIENTS
-    ) {
-      const oldestClient = this.attempts.keys().next().value;
-
-      if (oldestClient !== undefined) {
-        this.attempts.delete(oldestClient);
-      }
-    }
-
-    recentAttempts.push(now);
-    this.attempts.set(clientIp, recentAttempts);
 
     return true;
   }

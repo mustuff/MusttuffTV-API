@@ -7,13 +7,16 @@ import { App } from 'supertest/types';
 import { AuthController } from '../src/auth/auth.controller';
 import { AuthService } from '../src/auth/auth.service';
 import { LoginRateLimitGuard } from '../src/auth/login-rate-limit.guard';
+import { RedisRateLimitService } from '../src/auth/redis-rate-limit.service';
 
 describe('Login rate limiting (isolated)', () => {
   let app: INestApplication<App>;
   let loginMock: jest.Mock;
+  let attemptCounts: Map<string, number>;
 
   beforeAll(async () => {
     loginMock = jest.fn().mockResolvedValue(null);
+    attemptCounts = new Map<string, number>();
 
     const moduleFixture: TestingModule =
       await Test.createTestingModule({
@@ -26,6 +29,16 @@ describe('Login rate limiting (isolated)', () => {
             },
           },
           LoginRateLimitGuard,
+          {
+            provide: RedisRateLimitService,
+            useValue: {
+              incrementLoginAttempts: jest.fn(async (ip: string) => {
+                const count = (attemptCounts.get(ip) ?? 0) + 1;
+                attemptCounts.set(ip, count);
+                return count;
+              }),
+            },
+          },
         ],
       }).compile();
 
@@ -41,6 +54,7 @@ describe('Login rate limiting (isolated)', () => {
 
   beforeEach(() => {
     loginMock.mockClear();
+    attemptCounts.clear();
   });
 
   it('allows five login attempts and rejects the sixth with 429', async () => {
