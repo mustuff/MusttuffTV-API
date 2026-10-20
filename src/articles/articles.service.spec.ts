@@ -80,6 +80,23 @@ describe('ArticlesService', () => {
     });
   });
 
+  it.each(['PRODUCER', 'UNKNOWN'])(
+    'rejects unsupported role %s when editing an article',
+    async (role) => {
+      await expect(
+        service.update(
+          'article-1',
+          { title: 'Changed title' },
+          'user-1',
+          role,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(prisma.article.findUnique).not.toHaveBeenCalled();
+      expect(prisma.article.update).not.toHaveBeenCalled();
+    },
+  );
+
   it('allows journalists to edit their own articles', async () => {
     prisma.article.findUnique.mockResolvedValue({
       id: 'article-1',
@@ -104,6 +121,56 @@ describe('ArticlesService', () => {
       data: { title: 'Changed title' },
     });
     expect(result.title).toBe('Changed title');
+  });
+
+  it('allows administrators to edit articles by other authors', async () => {
+    prisma.article.findUnique.mockResolvedValue({
+      id: 'article-1',
+      authorId: 'journalist-1',
+    });
+
+    prisma.article.update.mockResolvedValue({
+      id: 'article-1',
+      title: 'Administrator update',
+      authorId: 'journalist-1',
+    });
+
+    await service.update(
+      'article-1',
+      { title: 'Administrator update' },
+      'admin-1',
+      'ADMIN',
+    );
+
+    expect(prisma.article.update).toHaveBeenCalledWith({
+      where: { id: 'article-1' },
+      data: { title: 'Administrator update' },
+    });
+  });
+
+  it('allows editors to edit articles by other authors', async () => {
+    prisma.article.findUnique.mockResolvedValue({
+      id: 'article-1',
+      authorId: 'journalist-1',
+    });
+
+    prisma.article.update.mockResolvedValue({
+      id: 'article-1',
+      title: 'Editor update',
+      authorId: 'journalist-1',
+    });
+
+    await service.update(
+      'article-1',
+      { title: 'Editor update' },
+      'editor-1',
+      'EDITOR',
+    );
+
+    expect(prisma.article.update).toHaveBeenCalledWith({
+      where: { id: 'article-1' },
+      data: { title: 'Editor update' },
+    });
   });
 
   it('prevents journalists from editing another author’s article', async () => {
@@ -134,6 +201,16 @@ describe('ArticlesService', () => {
         'user-1',
         'EDITOR',
       ),
+    ).rejects.toThrow(NotFoundException);
+
+    expect(prisma.article.update).not.toHaveBeenCalled();
+  });
+
+  it('returns not found when publishing a missing article', async () => {
+    prisma.article.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.publish('missing-article'),
     ).rejects.toThrow(NotFoundException);
 
     expect(prisma.article.update).not.toHaveBeenCalled();

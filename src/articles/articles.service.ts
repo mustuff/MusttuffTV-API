@@ -52,6 +52,12 @@ export class ArticlesService {
     userId: string,
     role: string,
   ) {
+    const allowedRoles = ['ADMIN', 'EDITOR', 'JOURNALIST'];
+
+    if (!allowedRoles.includes(role)) {
+      throw new ForbiddenException('You are not allowed to edit articles');
+    }
+
     const article = await this.prisma.article.findUnique({
       where: { id },
       select: {
