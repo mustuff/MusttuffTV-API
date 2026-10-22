@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   OnModuleDestroy,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ return count
 
 @Injectable()
 export class RedisRateLimitService implements OnModuleDestroy {
+  private readonly logger = new Logger(RedisRateLimitService.name);
   private client?: RedisClientType;
   private connectPromise?: Promise<void>;
 
@@ -50,7 +52,14 @@ export class RedisRateLimitService implements OnModuleDestroy {
       }
 
       return count;
-    } catch {
+    } catch (error: unknown) {
+      const errorName =
+        error instanceof Error ? error.name : typeof error;
+
+      this.logger.error(
+        `Login rate-limit operation failed (${errorName}).`,
+      );
+
       throw new ServiceUnavailableException(
         'Login protection is temporarily unavailable.',
       );
